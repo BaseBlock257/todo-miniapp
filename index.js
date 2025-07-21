@@ -29,6 +29,7 @@ db.connect();
 
 
 app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.json()); // For parsing JSON request bodies (for POST/PUT from frontend)
 app.use(express.static("public"));
 
 let items = [
@@ -79,6 +80,50 @@ app.post("/delete", async (req, res) => {
   }
   catch(err){
     console.log(err);
+  }
+});
+// for mini app
+// ✅ GET all todos as JSON (for Telegram Mini App)
+app.get("/items", async (req, res) => {
+  try {
+    const result = await db.query("SELECT * FROM items ORDER BY id ASC");
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch todos." });
+  }
+});
+
+// ✅ POST a new todo (from static frontend)
+app.post("/items", async (req, res) => {
+  const { title } = req.body;
+  try {
+    const result = await db.query("INSERT INTO items (title) VALUES ($1) RETURNING *", [title]);
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to add todo." });
+  }
+});
+
+// ✅ PUT to update a todo
+app.put("/items/:id", async (req, res) => {
+  const id = req.params.id;
+  const { title } = req.body;
+  try {
+    await db.query("UPDATE items SET title = $1 WHERE id = $2", [title, id]);
+    res.status(200).json({ message: "Todo updated." });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to update todo." });
+  }
+});
+
+// ✅ DELETE a todo
+app.delete("/items/:id", async (req, res) => {
+  const id = req.params.id;
+  try {
+    await db.query("DELETE FROM items WHERE id = $1", [id]);
+    res.status(200).json({ message: "Todo deleted." });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to delete todo." });
   }
 });
 
