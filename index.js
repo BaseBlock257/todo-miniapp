@@ -1,3 +1,5 @@
+import cors from 'cors';
+
 import express from "express";
 import bodyParser from "body-parser";
 import pg from "pg";
@@ -31,11 +33,14 @@ db.connect();
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.json()); // For parsing JSON request bodies (for POST/PUT from frontend)
 app.use(express.static("public"));
+const cors = require('cors');
+app.use(cors({ origin: 'https://baseblock257.github.io' }));
 
 let items = [
   { id: 1, title: "Buy milk" },
   { id: 2, title: "Finish homework" },
 ];
+
 
 app.get("/",async (req, res) => {
   try{
