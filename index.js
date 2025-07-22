@@ -1,6 +1,5 @@
-import cors from 'cors';
-
 import express from "express";
+import cors from 'cors';
 import bodyParser from "body-parser";
 import pg from "pg";
 //for render locally 
@@ -29,12 +28,10 @@ const db = new pg.Client({
 });
 db.connect();
 
-
+app.use(cors({ origin: 'https://baseblock257.github.io' }));
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.json()); // For parsing JSON request bodies (for POST/PUT from frontend)
 app.use(express.static("public"));
-const cors = require('cors');
-app.use(cors({ origin: 'https://baseblock257.github.io' }));
 
 let items = [
   { id: 1, title: "Buy milk" },
