@@ -1,134 +1,145 @@
 import express from "express";
-import cors from 'cors';
 import bodyParser from "body-parser";
-import pg from "pg";
-//for render locally 
+import pkg from "pg";
+import path from "path";
+import { fileURLToPath } from "url";
+import cors from "cors";
 import dotenv from "dotenv";
+
 dotenv.config();
 
-
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
-// const db=new pg.Client({
-//   user:"postgres",
-//   host:"localhost",
-//   database:"permalist",
-//   password:"postgres",
-//   port:5432,
-// });
-// db.connect();
-const db = new pg.Client({
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME,
-  password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT,
-  ssl: { rejectUnauthorized: false }, // Needed for Render
+const { Pool } = pkg;
+
+/* =========================
+   PostgreSQL (Render Ready)
+========================= */
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false,
+  },
 });
-db.connect();
 
-app.use(cors({ origin: 'https://baseblock257.github.io' }));
+/* Test DB connection on startup */
+pool.connect()
+  .then(() => console.log("✅ Postgres connected"))
+  .catch((err) => {
+    console.error("❌ Postgres connection error:", err);
+    process.exit(1);
+  });
+
+/* =========================
+   Express Config
+========================= */
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+app.set("view engine", "ejs");
+app.set("views", path.join(__dirname, "views"));
+
+app.use(cors());
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.json()); // For parsing JSON request bodies (for POST/PUT from frontend)
-app.use(express.static("public"));
+app.use(express.json());
 
-let items = [
-  { id: 1, title: "Buy milk" },
-  { id: 2, title: "Finish homework" },
-];
-
-
-app.get("/",async (req, res) => {
-  try{
-    const result=await db.query("SELECT * FROM items ORDER BY id ASC");
-    items=result.rows;
-    res.render("index.ejs", {
-      listTitle: "Today",
-      listItems: items,
-    });
-  }catch(err){
-    console.log(err);
-  }
-});
-
-app.post("/add", async (req, res) => {
-  const item = req.body.newItem;
-  try{
-    await db.query("INSERT INTO items (title) VALUES ($1)",[item]);
-    res.redirect("/");
-  }catch(err){
-    console.log(err);
-  }
-});
-
-app.post("/edit", async(req, res) => {
-  const item=req.body.updatedItemTitle;
-  const id=req.body.updatedItemId;
-  try{
-    await db.query("UPDATE items SET title = ($1) WHERE id=($2)",[item,id]);
-    res.redirect("/");
-  }
-  catch(err){
-    console.log(err);
-  }
-});
-
-app.post("/delete", async (req, res) => {
-  const id=req.body.deleteItemId;
-  try{
-    await db.query("DELETE FROM items WHERE id=($1)",[id]);
-    res.redirect("/");
-  }
-  catch(err){
-    console.log(err);
-  }
-});
-// for mini app
-// ✅ GET all todos as JSON (for Telegram Mini App)
-app.get("/items", async (req, res) => {
+/* =========================
+   Health Route
+========================= */
+app.get("/", async (req, res) => {
   try {
-    const result = await db.query("SELECT * FROM items ORDER BY id ASC");
+    const result = await pool.query("SELECT * FROM todos ORDER BY id DESC");
+    res.render("index", { todos: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.send("DB error");
+  }
+});
+
+/* =========================
+   GET todos (API for frontend)
+========================= */
+app.get("/api/todos", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM todos ORDER BY id DESC");
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: "Failed to fetch todos." });
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch todos" });
   }
 });
 
-// ✅ POST a new todo (from static frontend)
-app.post("/items", async (req, res) => {
-  const { title } = req.body;
+/* =========================
+   ADD todo
+========================= */
+app.post("/add", async (req, res) => {
+  const { task } = req.body;
+
+  if (!task || task.trim() === "") {
+    return res.redirect("/");
+  }
+
   try {
-    const result = await db.query("INSERT INTO items (title) VALUES ($1) RETURNING *", [title]);
-    res.status(201).json(result.rows[0]);
+    await pool.query("INSERT INTO todos (task) VALUES ($1)", [task]);
+    res.redirect("/");
   } catch (err) {
-    res.status(500).json({ error: "Failed to add todo." });
+    console.error(err);
+    res.send("Error adding todo");
   }
 });
 
-// ✅ PUT to update a todo
-app.put("/items/:id", async (req, res) => {
+/* API version (Telegram frontend uses this) */
+app.post("/api/todos", async (req, res) => {
+  const { task } = req.body;
+
+  if (!task || task.trim() === "") {
+    return res.status(400).json({ error: "Task required" });
+  }
+
+  try {
+    const result = await pool.query(
+      "INSERT INTO todos (task) VALUES ($1) RETURNING *",
+      [task]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to add todo" });
+  }
+});
+
+/* =========================
+   DELETE todo
+========================= */
+app.post("/delete/:id", async (req, res) => {
   const id = req.params.id;
-  const { title } = req.body;
+
   try {
-    await db.query("UPDATE items SET title = $1 WHERE id = $2", [title, id]);
-    res.status(200).json({ message: "Todo updated." });
+    await pool.query("DELETE FROM todos WHERE id = $1", [id]);
+    res.redirect("/");
   } catch (err) {
-    res.status(500).json({ error: "Failed to update todo." });
+    console.error(err);
+    res.send("Error deleting todo");
   }
 });
 
-// ✅ DELETE a todo
-app.delete("/items/:id", async (req, res) => {
+/* API delete */
+app.delete("/api/todos/:id", async (req, res) => {
   const id = req.params.id;
+
   try {
-    await db.query("DELETE FROM items WHERE id = $1", [id]);
-    res.status(200).json({ message: "Todo deleted." });
+    await pool.query("DELETE FROM todos WHERE id = $1", [id]);
+    res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: "Failed to delete todo." });
+    console.error(err);
+    res.status(500).json({ error: "Failed to delete todo" });
   }
 });
 
+/* =========================
+   START SERVER
+========================= */
 app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+  console.log(`🚀 Server running on port ${port}`);
 });
